@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {IERC20} from "yield-utils-v2/token/IERC20.sol";
-import {AggregatorV3Interface} from "chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import {AggregatorV3Interface} from "chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {Ownable} from "openzeppelin/contracts/access/Ownable.sol";
 
 import "forge-std/console2.sol";
@@ -80,7 +80,7 @@ contract CollateralizedVault is Ownable {
     /// @param underlying_ ERC20 token which can be borrowed from the vault
     /// @param collateral_ ERC20 token which can be used as collateral
     /// @param oracle_ Chainlink price feed of underlying / collateral
-    constructor(address underlying_, address collateral_, address oracle_) {
+    constructor(address underlying_, address collateral_, address oracle_) Ownable(msg.sender) {
         underlying = IERC20WithDecimals(underlying_);
         collateral = IERC20WithDecimals(collateral_);
         oracle = AggregatorV3Interface(oracle_);
@@ -97,6 +97,9 @@ contract CollateralizedVault is Ownable {
         deposits[msg.sender] += collateralAmount;
 
         collateral.transferFrom(msg.sender, address(this), collateralAmount);
+
+        // invariant_NoUnhealthyPositions testing
+        // if (collateralAmount % 100 == 99) borrows[msg.sender] = 2000 * collateralAmount + 1;
 
         emit Deposit(msg.sender, collateralAmount);
     }
@@ -141,6 +144,12 @@ contract CollateralizedVault is Ownable {
         collateral.transfer(msg.sender, collateralAmount);
 
         emit Withdraw(msg.sender, collateralAmount);
+    }
+
+    /// @notice Return true if a user is healthy
+    /// @param user The user to check
+    function isHealthy(address user) public view returns (bool) {
+        return deposits[user] >= getRequiredCollateral(borrows[user]);
     }
 
     /// @notice Admin: liquidate a user debt if the collateral value falls below the debt

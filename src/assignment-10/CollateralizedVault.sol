@@ -2,9 +2,9 @@
 pragma solidity ^0.8.13;
 
 import {IERC20} from "yield-utils-v2/token/IERC20.sol";
-import {AggregatorV3Interface} from "chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import {AggregatorV3Interface} from "chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {Ownable} from "openzeppelin/contracts/access/Ownable.sol";
-import {WDivUp} from "yield-utils-v2/math/WDivUp.sol";
+import {Math} from "yield-utils-v2/utils/Math.sol";
 
 interface IERC20WithDecimals is IERC20 {
     function decimals() external view returns (uint8);
@@ -19,7 +19,7 @@ interface IERC20WithDecimals is IERC20 {
 /// @dev The Vault uses Chainlink price feeds to determine the value of the collateral compared to the debt
 contract CollateralizedVault is Ownable {
 
-    using WDivUp for uint256;
+    using Math for uint256;
 
     /******************
      * Constants
@@ -87,7 +87,7 @@ contract CollateralizedVault is Ownable {
     /// @param underlying_ ERC20 token which can be borrowed from the vault
     /// @param collateral_ ERC20 token which can be used as collateral
     /// @param oracle_ Chainlink price feed of underlying / collateral
-    constructor(address underlying_, address collateral_, address oracle_) {
+    constructor(address underlying_, address collateral_, address oracle_) Ownable(msg.sender) {
         underlying = IERC20WithDecimals(underlying_);
         collateral = IERC20WithDecimals(collateral_);
         oracle = AggregatorV3Interface(oracle_);
