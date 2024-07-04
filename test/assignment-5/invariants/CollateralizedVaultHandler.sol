@@ -39,6 +39,16 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         }
     }
 
+    function totalInsolventPositions() public view returns (uint256 insolventPositions) {
+        for (uint256 i = 0; i < users.length; i++) {
+            console2.log("Checking...", i, users[i]);
+            if (!vault.isSolvent(users[i])) {
+                console2.log("Insolvent!", users[i]);
+                insolventPositions++;
+            }
+        }
+    }
+
     function deposit(uint256 amount) public payable {
         address user = msg.sender;
         if(user.codehash == 0) { // Instead of a blanket ban on contracts, we should have a whitelist

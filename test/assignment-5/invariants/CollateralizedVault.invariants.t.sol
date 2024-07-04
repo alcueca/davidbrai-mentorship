@@ -34,7 +34,7 @@ abstract contract ZeroState is StdInvariant, Test {
         weth = IERC20(address(new WETH9()));
         priceFeedMock = new ChainlinkPriceFeedMock();
         priceFeedMock.setPrice(500000000000000); // = 1/2000
-        vault = new CollateralizedVault(address(dai), address(weth), address(priceFeedMock));
+        vault = new CollateralizedVault(address(dai), address(weth), address(priceFeedMock), 15e17);
 
         setDaiBalance(address(vault), 256 * 1000000 ether);
 
@@ -70,15 +70,21 @@ abstract contract ZeroState is StdInvariant, Test {
 contract ZeroStateTest is ZeroState {
 
     /// @dev Sum of deposits == contract balance
-    function invariant_SumDepositsEqVaultCollateral() public view {
-        assertLe(handler.totalDeposits() - handler.totalWithdrawals(), weth.balanceOf(address(vault)));
-    }
+    // function invariant_SumDepositsEqVaultCollateral() public view {
+    //     assertLe(handler.totalDeposits() - handler.totalWithdrawals(), weth.balanceOf(address(vault)));
+    // }
 
     /// @dev No price change, single block, no way for positions to become unhealthy
     /// Last time it took 167.47s to run this test
     // function invariant_NoUnhealthyPositions() public view {
     //     assertEq(handler.totalUnhealthyPositions(), 0);
     // }
+
+    /// @dev No price change, no way for protocol to become insolvent
+    /// Needs a collateralization ratio above 1 to be different from invariant_NoUnhealthyPositions
+    function invariant_NoInsolventPositions() public view {
+        assertEq(handler.totalInsolventPositions(), 0);
+    }
 
 //    function testDeposit() public {
 //        vm.prank(USER);

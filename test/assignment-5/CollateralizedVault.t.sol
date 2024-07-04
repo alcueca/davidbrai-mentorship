@@ -30,7 +30,7 @@ abstract contract ZeroState is Test {
         weth = new WETH9();
         priceFeedMock = new ChainlinkPriceFeedMock();
         priceFeedMock.setPrice(500000000000000); // = 1/2000
-        vault = new CollateralizedVault(address(dai), address(weth), address(priceFeedMock));
+        vault = new CollateralizedVault(address(dai), address(weth), address(priceFeedMock), 1e18);
 
         setDaiBalance(address(vault), 10000 ether);
         setWethBalance(USER, 10 ether);
