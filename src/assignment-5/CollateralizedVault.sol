@@ -173,6 +173,12 @@ contract CollateralizedVault is Ownable {
         requiredCollateral = scaleInteger(requiredCollateral, underlyingDecimals, collateralDecimals);
     }
 
+    /// @notice Returns the maximum amount of `underlying` token that can be borrowed with the given collateral
+    function getMaximumBorrowing(uint256 collateralAmount) public view returns (uint256 maximumBorrow) {
+        maximumBorrow = collateralAmount * 10**oracleDecimals / getPrice();
+        maximumBorrow = scaleInteger(maximumBorrow, collateralDecimals, underlyingDecimals);
+    }
+
     /// @dev Scales a fixed point interger from `fromDecimals` to `toDecimals`
     function scaleInteger(uint256 x, uint8 fromDecimals, uint8 toDecimals) public pure returns (uint256) {
         if (toDecimals >= fromDecimals) {

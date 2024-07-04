@@ -59,6 +59,14 @@ abstract contract ZeroState is Test {
 
 contract ZeroStateTest is ZeroState {
 
+    function testGetRequiredCollateral() public view {
+        assertEq(vault.getRequiredCollateral(2000 ether), 1 ether);
+    }
+
+    function testGetMaximumBorrowing() public view {
+        assertEq(vault.getMaximumBorrowing(1 ether), 2000 ether);
+    }
+
     function testDeposit() public {
         vm.prank(USER);
         vm.expectEmit(true, true, true, true);
