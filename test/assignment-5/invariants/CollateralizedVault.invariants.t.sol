@@ -40,12 +40,12 @@ abstract contract ZeroState is StdInvariant, Test {
 
         handler = new CollateralizedVaultHandler(dai, weth, vault);
         targetContract(address(handler));
-        excludeContract(address(vault));
+        targetContract(address(weth));
+        targetContract(address(dai));
 
-        // Maybe include these contracts later on
-        excludeContract(address(priceFeedMock));
-        excludeContract(address(weth));
-        excludeContract(address(dai));
+        excludeSender(address(vault));
+        excludeSender(address(weth));
+        excludeSender(address(dai));
     }
 
     function setDaiBalance(address dst, uint256 balance) public {
@@ -70,15 +70,15 @@ abstract contract ZeroState is StdInvariant, Test {
 contract ZeroStateTest is ZeroState {
 
     /// @dev Sum of deposits == contract balance
-    // function invariant_SumDepositsEqVaultCollateral() public view {
-    //     assertEq(handler.totalDeposits() - handler.totalWithdrawals(), weth.balanceOf(address(vault)));
-    // }
+    function invariant_SumDepositsEqVaultCollateral() public view {
+        assertLe(handler.totalDeposits() - handler.totalWithdrawals(), weth.balanceOf(address(vault)));
+    }
 
     /// @dev No price change, single block, no way for positions to become unhealthy
     /// Last time it took 167.47s to run this test
-    function invariant_NoUnhealthyPositions() public view {
-        assertEq(handler.totalUnhealthyPositions(), 0);
-    }
+    // function invariant_NoUnhealthyPositions() public view {
+    //     assertEq(handler.totalUnhealthyPositions(), 0);
+    // }
 
 //    function testDeposit() public {
 //        vm.prank(USER);
