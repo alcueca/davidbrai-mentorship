@@ -90,17 +90,6 @@ contract ZeroStateTest is ZeroState {
         assertEq(weth.balanceOf(address(vault)), 2 ether);
         assertEq(vault.deposits(USER), 2 ether);
     }
-
-    function testScaleInteger() public {
-        // scale 12.345 from 6 decimals to 18
-        uint256 from = (12345 * 1e6) / 1e3;
-        uint256 to = vault.scaleInteger(from, 6, 18);
-
-        assertEq(to, (12345 * 1e18) / 1e3);
-
-        // test reverse
-        assertEq(vault.scaleInteger(to, 18, 6), from);
-    }
 }
 
 abstract contract DepositedCollateralState is ZeroState {
@@ -141,7 +130,7 @@ contract DepositedCollateralStateTest is DepositedCollateralState {
 
     function testRevertsWhenTryingToBorrowTooMuch() public {
         vm.prank(USER);
-        vm.expectRevert(CollateralizedVault.NotEnoughCollateral.selector);
+        vm.expectRevert(CollateralizedVault.PositionUnhealthy.selector);
         vault.borrow(6000 * 1e18 + 1);
     }
 }
@@ -176,7 +165,7 @@ contract BorrowedStateTest is BorrowedState {
 
     function testCantWithdrawCollateral() public {
         vm.prank(USER);
-        vm.expectRevert(CollateralizedVault.TooMuchDebt.selector);
+        vm.expectRevert(CollateralizedVault.PositionUnhealthy.selector);
         vault.withdraw(1);
     }
 
@@ -208,7 +197,7 @@ contract BorrowedStateTest is BorrowedState {
     // }
 
     function testOwnerCantLiquidateIfDebtIsCollateralized() public {
-        vm.expectRevert(CollateralizedVault.UserDebtIsSufficientlyCollateralized.selector);
+        vm.expectRevert(CollateralizedVault.PositionHealthy.selector);
         vault.liquidate(USER);
     }
 
@@ -255,7 +244,7 @@ contract PartiallyRepaidDebtStateTest is PartiallyRepaidDebtState {
 
     function testRevertWhenTryingToWithdrawTooMuch() public {
         vm.prank(USER);
-        vm.expectRevert(CollateralizedVault.TooMuchDebt.selector);
+        vm.expectRevert(CollateralizedVault.PositionUnhealthy.selector);
         vault.withdraw(2 ether + 1);
     }
 
@@ -265,7 +254,7 @@ contract PartiallyRepaidDebtStateTest is PartiallyRepaidDebtState {
 
         // can't withdraw 2 WETH
         vm.prank(USER);
-        vm.expectRevert(CollateralizedVault.TooMuchDebt.selector);
+        vm.expectRevert(CollateralizedVault.PositionUnhealthy.selector);
         vault.withdraw(2 ether);
 
         // but 1 WETH is OK
@@ -286,7 +275,7 @@ contract PartiallyRepaidDebtStateTest is PartiallyRepaidDebtState {
         // User needs to leave 0.8 WETH collateral, so can withdraw 2.2 WETH
         // Making sure he can't withdraw more than that first
         vm.prank(USER);
-        vm.expectRevert(CollateralizedVault.TooMuchDebt.selector);
+        vm.expectRevert(CollateralizedVault.PositionUnhealthy.selector);
         vault.withdraw(2.2 ether + 1);
 
         // And checking that he can withdraw 2.2 WETH

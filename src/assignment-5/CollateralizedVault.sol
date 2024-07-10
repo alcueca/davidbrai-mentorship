@@ -19,6 +19,7 @@ interface IERC20WithDecimals is IERC20 {
 ///     In case of a liquidation, both the user's debt and collateral are erased.
 /// @dev The Vault uses Chainlink price feeds to determine the value of the collateral compared to the debt
 contract CollateralizedVault is Ownable {
+    using Math for uint256;
 
     /******************
      * Immutables
@@ -34,17 +35,8 @@ contract CollateralizedVault is Ownable {
     ///     e.g. if underlying is DAI and collateral is WETH, priceFeed is for DAI/WETH
     AggregatorV3Interface public immutable oracle;
 
-    /// @dev Number of decimals for underlying token
-    uint8 public immutable underlyingDecimals;
-
-    /// @dev Number of decimals for collateral token
-    uint8 public immutable collateralDecimals;
-
     /// @dev Collateralization ratio (FP18)
     uint256 public immutable collateralizationRatio;
-
-    /// @dev Number of decimals for oracle price
-    uint8 public immutable oracleDecimals;
 
     /******************
      * State variables
@@ -53,8 +45,14 @@ contract CollateralizedVault is Ownable {
     /// @notice deposited collateral per user in the vault, of `collateral` token
     mapping(address => uint256) public deposits;
 
+    /// @notice Total amount of collateral deposited in the vault, of `collateral` token
+    uint256 totalDeposits;
+
     /// @notice Mapping of current debt per user, of `underlying` token
     mapping(address => uint256) public borrows;
+
+    /// @notice Total amount of debt in the vault, of `underlying` token
+    uint256 totalBorrows;
 
     /******************
      * Events
@@ -75,9 +73,9 @@ contract CollateralizedVault is Ownable {
     /// @notice An event emitted when `user` is liquidated
     event Liquidate(address indexed user, uint256 debtAmount, uint256 collateralAmount);
 
-    error TooMuchDebt();
-    error NotEnoughCollateral();
-    error UserDebtIsSufficientlyCollateralized();
+    error PositionUnhealthy();
+
+    error PositionHealthy();
 
     /// @notice Initalizes a new CollateralizedVault
     /// @param underlying_ ERC20 token which can be borrowed from the vault
@@ -88,17 +86,13 @@ contract CollateralizedVault is Ownable {
         collateral = IERC20WithDecimals(collateral_);
         oracle = AggregatorV3Interface(oracle_);
         collateralizationRatio = collateralizationRatio_;
-
-        // Gas optimization: save decimals in contract instead of reading from external contract
-        underlyingDecimals = underlying.decimals();
-        collateralDecimals = collateral.decimals();
-        oracleDecimals = oracle.decimals();
     }
 
     /// @notice Deposits additional collateral into the vault
     /// @param collateralAmount amount of `collateral` token to deposit
     function deposit(uint256 collateralAmount) public {
         deposits[msg.sender] += collateralAmount;
+        totalDeposits += collateralAmount;
 
         collateral.transferFrom(msg.sender, address(this), collateralAmount);
 
@@ -106,7 +100,7 @@ contract CollateralizedVault is Ownable {
         // if (collateralAmount % 100 == 99) borrows[msg.sender] = getMaximumBorrowing(collateralAmount) + 1;
 
         // invariant_NoInsolventPositions testing
-        // if (collateralAmount % 100 == 99) borrows[msg.sender] = scaleInteger(collateralAmount * 10**oracleDecimals / getPrice() + 1, collateralDecimals, underlyingDecimals);
+        // if (collateralAmount % 100 == 99) borrows[msg.sender] = underlyingValue(collateralAmount) + 1;
 
         emit Deposit(msg.sender, collateralAmount);
     }
@@ -115,13 +109,12 @@ contract CollateralizedVault is Ownable {
     ///     Only allowed to borrow up to the value of the collateral
     /// @param amount The amount of `underlying` token to borrow
     function borrow(uint256 amount) public {
-        if (getRequiredCollateral(borrows[msg.sender] + amount) > deposits[msg.sender]) {
-            revert NotEnoughCollateral();
-        }
-
         borrows[msg.sender] += amount;
+        totalBorrows += amount;
 
         underlying.transfer(msg.sender, amount);
+
+        if (!isHealthy(msg.sender)) revert PositionUnhealthy();
 
         emit Borrow(msg.sender, amount);
     }
@@ -130,6 +123,7 @@ contract CollateralizedVault is Ownable {
     /// @param amount The amount of `underlying` token to pay back
     function repay(uint256 amount) public {
         borrows[msg.sender] -= amount;
+        totalBorrows -= amount;
 
         underlying.transferFrom(msg.sender, address(this), amount);
 
@@ -140,15 +134,12 @@ contract CollateralizedVault is Ownable {
     ///     Only allowed to withdraw as long as the collateral left is higher in value than the debt
     /// @param collateralAmount The amount of `collateral` token to withdraw
     function withdraw(uint256 collateralAmount) public {
-        uint256 requiredCollateral = getRequiredCollateral(borrows[msg.sender]);
-
-        if (deposits[msg.sender] - collateralAmount < requiredCollateral) {
-            revert TooMuchDebt();
-        }
-
         deposits[msg.sender] -= collateralAmount;
+        totalDeposits -= collateralAmount;
 
         collateral.transfer(msg.sender, collateralAmount);
+
+        if (!isHealthy(msg.sender)) revert PositionUnhealthy();
 
         emit Withdraw(msg.sender, collateralAmount);
     }
@@ -156,28 +147,34 @@ contract CollateralizedVault is Ownable {
     /// @notice Return true if a user is healthy
     /// @param user The user to check
     function isHealthy(address user) public view returns (bool) {
-        return deposits[user] >= getRequiredCollateral(borrows[user]);
+        return getMaximumBorrowing(deposits[user]) >= borrows[user];
     }
 
     /// @notice Return true if a user is solvent
     /// @param user The user to check
     function isSolvent(address user) public view returns (bool) {
-        uint256 collateralValue = mulup(borrows[user], getPrice(), oracleDecimals);
-        collateralValue = scaleInteger(collateralValue, underlyingDecimals, collateralDecimals);
+        return deposits[user] >= collateralValue(borrows[user]);
+    }
 
-        return deposits[user] >= collateralValue;
+    /// @notice Return true if the vault is healthy
+    function isHealthy() public view returns (bool) {
+        return getMaximumBorrowing(totalDeposits) >= totalBorrows;
+    }
+
+    /// @notice Return true if the vault is solvent
+    function isSolvent() public view returns (bool) {
+        return totalDeposits >= collateralValue(totalBorrows);
     }
 
     /// @notice Admin: liquidate a user debt if the collateral value falls below the debt
     /// @param user The user to liquidate
     /// @dev Only admin is allowed to liquidate
     function liquidate(address user) onlyOwner public {
-        uint256 requiredCollateral = getRequiredCollateral(borrows[user]);
-        if (deposits[user] >= requiredCollateral) {
-            revert UserDebtIsSufficientlyCollateralized();
-        }
+        if (isHealthy(user)) revert PositionHealthy();
 
         emit Liquidate(user, borrows[user], deposits[user]);
+
+        collateral.transfer(owner(), deposits[user]);
 
         delete borrows[user];
         delete deposits[user];
@@ -185,25 +182,22 @@ contract CollateralizedVault is Ownable {
 
     /// @notice Returns the required amount of collateral in order to borrow `borrowAmount`
     function getRequiredCollateral(uint256 borrowAmount) public view returns (uint256 requiredCollateral) {
-        requiredCollateral = mulup(borrowAmount, getPrice(), oracleDecimals);
-        requiredCollateral = scaleInteger(requiredCollateral, underlyingDecimals, collateralDecimals);
-        requiredCollateral = requiredCollateral * collateralizationRatio / 1e18;
+        requiredCollateral = collateralValue(borrowAmount).wmulup(collateralizationRatio);
+        if (requiredCollateral == 0) requiredCollateral = 1; // Because collateralValue rounds down, if the collateral is of a higher unitary price we could have 0 required collateral
     }
 
     /// @notice Returns the maximum amount of `underlying` token that can be borrowed with the given collateral
     function getMaximumBorrowing(uint256 collateralAmount) public view returns (uint256 maximumBorrow) {
-        maximumBorrow = collateralAmount * 10**oracleDecimals / getPrice();
-        maximumBorrow = scaleInteger(maximumBorrow, collateralDecimals, underlyingDecimals);
-        maximumBorrow = maximumBorrow * 1e18 / collateralizationRatio;
+        maximumBorrow = underlyingValue(collateralAmount).wdiv(collateralizationRatio);
     }
 
-    /// @dev Scales a fixed point interger from `fromDecimals` to `toDecimals`
-    function scaleInteger(uint256 x, uint8 fromDecimals, uint8 toDecimals) public pure returns (uint256) {
-        if (toDecimals >= fromDecimals) {
-            return x * 10**(toDecimals - fromDecimals);
-        } else {
-            return x / 10**(fromDecimals - toDecimals);
-        }
+    function getMaximumBorrowing(address user) public view returns (uint256 maximumBorrow) {
+        maximumBorrow = getMaximumBorrowing(deposits[user]) - borrows[user];
+    }
+
+    /// @notice Returns the maximum amount of `underlying` token that can be borrowed from the vault
+    function getMaximumBorrowing() public view returns (uint256 maximumBorrow) {
+        maximumBorrow = underlying.balanceOf(address(this));
     }
 
     /// @notice Returns the price of the underlying token in collateral token units
@@ -215,15 +209,50 @@ contract CollateralizedVault is Ownable {
             /*uint timeStamp*/,
             /*uint80 answeredInRound*/
         ) = oracle.latestRoundData();
-        return toUint256(price);
+        return uint256(price);
     }
 
-    function mulup(uint256 x, uint256 y, uint8 decimals) internal pure returns (uint256 z) {
-        z = (x * y + 10**decimals - 1) / 10**decimals;
+    function collateralValue(uint256 underlyingAmount) public view returns (uint256 collateralAmount) {
+        collateralAmount = underlyingAmount.wmul(getPrice());
     }
 
-    function toUint256(int256 value) internal pure returns (uint256) {
-        require(value >= 0, "SafeCast: value must be positive");
-        return uint256(value);
+    function underlyingValue(uint256 collateralAmount) public view returns (uint256 underlyingAmount) {
+        underlyingAmount = collateralAmount.wdiv(getPrice());
+    }
+}
+
+library Math {
+    // Taken from https://github.com/usmfum/USM/blob/master/src/WadMath.sol
+    /// @dev Multiply an amount by a fixed point factor with 18 decimals, rounds down.
+    function wmul(uint256 x, uint256 y) internal pure returns (uint256 z) {
+        z = x * y;
+        unchecked {
+            z /= 1e18;
+        }
+    }
+
+    // Taken from https://github.com/usmfum/USM/blob/master/src/WadMath.sol
+    /// @dev Multiply x and y, with y being fixed point. If both are integers, the result is a fixed point factor. Rounds up.
+    function wmulup(uint256 x, uint256 y) internal pure returns (uint256 z) {
+        z = x * y + 1e18 - 1; // Rounds up.  So (again imagining 2 decimal places):
+        unchecked {
+            z /= 1e18;
+        } // 383 (3.83) * 235 (2.35) -> 90005 (9.0005), + 99 (0.0099) -> 90104, / 100 -> 901 (9.01).
+    }
+
+    // Taken from https://github.com/usmfum/USM/blob/master/src/WadMath.sol
+    /// @dev Divide an amount by a fixed point factor with 18 decimals
+    function wdiv(uint256 x, uint256 y) internal pure returns (uint256 z) {
+        z = (x * 1e18) / y;
+    }
+
+    // Taken from https://github.com/usmfum/USM/blob/master/src/WadMath.sol
+    /// @dev Divide x and y, with y being fixed point. If both are integers, the result is a fixed point factor. Rounds up.
+    function wdivup(uint256 x, uint256 y) internal pure returns (uint256 z) {
+        z = x * 1e18 + y; // 101 (1.01) / 1000 (10) -> (101 * 100 + 1000 - 1) / 1000 -> 11 (0.11 = 0.101 rounded up).
+        unchecked {
+            z -= 1;
+        } // Can do unchecked subtraction since division in next line will catch y = 0 case anyway
+        z /= y;
     }
 }
