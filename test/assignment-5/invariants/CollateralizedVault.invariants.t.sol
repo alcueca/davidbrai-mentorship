@@ -21,6 +21,9 @@ abstract contract ZeroState is StdInvariant, Test {
 
     using stdStorage for StdStorage;
 
+    uint256 public constant INITIAL_UNDERLYING_BALANCE = 256 * 1000000 ether;
+    int256 public constant INITIAL_PRICE = 500000000000000; // = 1/2000
+
     address USER = address(1);
     CollateralizedVault vault;
     IERC20 dai;
@@ -33,10 +36,10 @@ abstract contract ZeroState is StdInvariant, Test {
         dai = IERC20(address(new Dai(block.chainid)));
         weth = IERC20(address(new WETH9()));
         priceFeedMock = new ChainlinkPriceFeedMock();
-        priceFeedMock.setPrice(500000000000000); // = 1/2000
+        priceFeedMock.setPrice(INITIAL_PRICE);
         vault = new CollateralizedVault(address(dai), address(weth), address(priceFeedMock), 15e17);
 
-        deal(address(dai), address(vault), 256 * 1000000 ether);
+        deal(address(dai), address(vault), INITIAL_UNDERLYING_BALANCE);
 
         handler = new CollateralizedVaultHandler(dai, weth, vault);
         targetContract(address(handler));
@@ -52,11 +55,14 @@ abstract contract ZeroState is StdInvariant, Test {
 
 contract ZeroStateTest is ZeroState {
 
-    /// @dev Sum of deposits == contract balance
-    function invariant_SumDepositsEqVaultCollateral() public view {
-        console2.log("handler.totalDeposits()", handler.totalDeposits());
-        console2.log("handler.totalWithdrawals()", handler.totalWithdrawals());
+    /// @dev Sum of deposits == contract collateral balance
+    function invariant_CollateralPreservation() public view {
         assertLe(handler.totalDeposits() - handler.totalWithdrawals(), weth.balanceOf(address(vault)));
+    }
+
+    /// @dev Sum of borrows + contract balance == initial underlying balance
+    function invariant_UnderlyingPreservation() public view {
+        assertLe(INITIAL_UNDERLYING_BALANCE + handler.totalRepayments() - handler.totalBorrows(), dai.balanceOf(address(vault)));
     }
 
     /// @dev No price change, single block, no way for positions to become unhealthy

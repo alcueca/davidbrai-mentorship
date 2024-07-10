@@ -174,6 +174,7 @@ contract CollateralizedVault is Ownable {
 
         emit Liquidate(user, borrows[user], deposits[user]);
 
+        underlying.transferFrom(msg.sender, address(this), borrows[user]);
         collateral.transfer(owner(), deposits[user]);
 
         delete borrows[user];
