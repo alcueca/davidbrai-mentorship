@@ -53,25 +53,27 @@ abstract contract ZeroState is StdInvariant, Test {
 contract ZeroStateTest is ZeroState {
 
     /// @dev Sum of deposits == contract balance
-    // function invariant_SumDepositsEqVaultCollateral() public view {
-    //     assertLe(handler.totalDeposits() - handler.totalWithdrawals(), weth.balanceOf(address(vault)));
-    // }
+    function invariant_SumDepositsEqVaultCollateral() public view {
+        console2.log("handler.totalDeposits()", handler.totalDeposits());
+        console2.log("handler.totalWithdrawals()", handler.totalWithdrawals());
+        assertLe(handler.totalDeposits() - handler.totalWithdrawals(), weth.balanceOf(address(vault)));
+    }
 
     /// @dev No price change, single block, no way for positions to become unhealthy
-    /// Last time it took 167.47s to run this test
+    /// This will fail if the handler is allowed to create unhealthy positions, doh!
     // function invariant_NoUnhealthyPositions() public view {
     //     assertEq(handler.totalUnhealthyPositions(), 0);
     // }
 
     /// @dev No price change, no way for protocol to become insolvent
     /// Needs a collateralization ratio above 1 to be different from invariant_NoUnhealthyPositions
-    // function invariant_NoInsolventPositions() public view {
-    //     assertEq(handler.totalInsolventPositions(), 0);
-    // }
+    function invariant_NoInsolventPositions() public view {
+        assertEq(handler.totalInsolventPositions(), 0);
+    }
 
     /// @dev No insolvent positions, solvent position gets liquidated, protocol is solvent
     function invariant_OvercollateralizedProtocol() public view {
-        assertEq(handler.totalInsolventPositions(), 0);
+        // assertEq(handler.totalInsolventPositions(), 0); // This is guaranteed in the previous test
         assertEq(vault.isSolvent(), true);
     }
 

@@ -90,6 +90,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         vm.startPrank(user);
         weth.approve(address(vault), depositAmount);
         vault.deposit(depositAmount);
+        totalDeposits += depositAmount;
         uint256 borrowAmount = vault.getMaximumBorrowing(user);
         if (borrowAmount > vault.getMaximumBorrowing())  revert ("Not enough borrowing capacity");
         vault.borrow(borrowAmount);
@@ -172,6 +173,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         address user = firstUnhealthyUser();
 
         vm.startPrank(vault.owner());
+        totalWithdrawals += vault.deposits(user);
         vault.liquidate(user);
         vm.stopPrank();
     }
