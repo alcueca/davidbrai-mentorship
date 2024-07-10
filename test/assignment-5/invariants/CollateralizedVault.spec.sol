@@ -8,10 +8,11 @@ pragma solidity ^0.8.13;
 abstract contract InvariantsSpec {
 
 
-// Sum of deposits ≤ contract balance - invariant_SumDepositsEqVaultCollateral
+// Sum of deposits ≤ contract collateral balance - invariant_CollateralPreservation
+// Sum of borrows + repayments = initial contract underlying balance - invariant_UnderlyingPreservation
 // No price change, single block, no way for positions to become unhealthy - invariant_NoUnhealthyPositions
 // No price change, no way for protocol to become insolvent - invariant_NoInsolventPositions
-// No insolvent positions, overcollateralized position gets liquidated, protocol stays overcollateralized
+// No insolvent positions, overcollateralized position gets liquidated, protocol stays overcollateralized - invariant_OvercollateralizedProtocol
 // Debt can always be repaid by any amount
 // Unhealthy positions can't increase in debt
 // Collateral can always be withdrawn down to the healthy position level
