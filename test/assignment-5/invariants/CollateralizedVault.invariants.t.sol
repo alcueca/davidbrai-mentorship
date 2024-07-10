@@ -104,6 +104,10 @@ abstract contract DepositedCollateralState is ZeroState {
 
 contract DepositedCollateralStateTest is DepositedCollateralState {
     
+    function testFuzzDepositAgain(uint256 amount) public {
+        handler.depositAgain(amount);
+    }
+
     function testFuzzWithdraw(uint256 amount) public {
         handler.withdraw(amount);
     }

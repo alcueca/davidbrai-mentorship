@@ -119,6 +119,19 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         totalDeposits += amount;
     }
     
+    function depositAgain(uint256 amount) public payable {
+        address user = randomUser(bytes32(bytes20(msg.sender)));
+        amount = bound(amount, 0, 1000 ether);
+        deal(address(weth), user, amount);
+
+        vm.startPrank(user);
+        weth.approve(address(vault), amount);
+        vault.deposit(amount);
+        vm.stopPrank();
+
+        totalDeposits += amount;
+    }
+
     function withdraw(uint256 amount) public {
         address user = randomUser(bytes32(bytes20(msg.sender)));
         amount = bound(amount, 0, vault.deposits(user));
