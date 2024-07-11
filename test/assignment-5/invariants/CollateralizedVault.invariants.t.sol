@@ -83,6 +83,11 @@ contract ZeroStateTest is ZeroState {
         assertEq(vault.isSolvent(), true);
     }
 
+    /// @dev Collateral can always be withdrawn down to the healthy position level
+    function invariant_WithdrawalDownToHealthy() public view {
+        assertFalse(handler.failedWithdrawMax());
+    }
+
     function testFuzzDeposit(uint256 amount) public {
         handler.deposit(amount);
     }

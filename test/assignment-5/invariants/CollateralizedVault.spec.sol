@@ -10,15 +10,15 @@ abstract contract InvariantsSpec {
 
 // Sum of deposits ≤ contract collateral balance - invariant_CollateralPreservation
 // Sum of borrows + repayments = initial contract underlying balance - invariant_UnderlyingPreservation
-// No price change, single block, no way for positions to become unhealthy - invariant_NoUnhealthyPositions
+// No price change, single block, no way for positions to become unhealthy - invariant_NoUnhealthyPositions - separate suite with no creation of unhealthy positions
 // No price change, no way for protocol to become insolvent - invariant_NoInsolventPositions
 // No insolvent positions, overcollateralized position gets liquidated, protocol stays overcollateralized - invariant_OvercollateralizedProtocol
-// Debt can always be repaid by any amount
-// Unhealthy positions can't increase in debt
-// Collateral can always be withdrawn down to the healthy position level
-// Only liquidations can make unhealthy positions more unhealthy
+// Debt can always be repaid by any amount - fuzz testing?
+// Collateral can always be withdrawn down to the healthy position level - fuzz testing?
+// Unhealthy positions can't increase in debt - maintain a list of unhealthy positions and their debt with each operation?
+// Only liquidations can make unhealthy positions more unhealthy - separate suite with no liquidations
 // Interest rate can't grow beyond hard-coded limit for any period of time
-// A position can only be liquidated if it is unhealthy
+// A position can only be liquidated if it is unhealthy - unit testing?
 // 
 // If lending out deposits:
 // Sum of deposits ≤ outstanding debt + contract balance

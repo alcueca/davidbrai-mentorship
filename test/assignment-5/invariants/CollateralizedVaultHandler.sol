@@ -11,6 +11,8 @@ import {IERC20} from "yield-utils-v2/token/IERC20.sol";
 import {CollateralizedVault} from "../../../src/assignment-5/CollateralizedVault.sol";
 
 contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
+    uint256 public constant MAX_DEPOSIT = 100000;
+
     IERC20 public dai;
     IERC20 public weth;
     CollateralizedVault public vault;
@@ -23,6 +25,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
     uint256 public totalWithdrawals;
     uint256 public totalBorrows;
     uint256 public totalRepayments;
+    bool public failedWithdrawMax;
 
     constructor(IERC20 dai_, IERC20 weth_, CollateralizedVault vault_) {
         dai = dai_;
@@ -31,13 +34,39 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         oracle = ChainlinkPriceFeedMock(address(vault.oracle()));
     }
 
-    function randomUser(bytes32 seed) public view returns (address) {
+    function randomUserIndex(bytes32 seed) public view returns (uint256) {
         if (users.length == 0)  revert ("No users");
-        return users[uint256(keccak256(abi.encodePacked(seed))) % users.length];
+        return uint256(keccak256(abi.encodePacked(seed))) % users.length;
+    }
+
+    function randomUser(bytes32 seed) public view returns (address) {
+        return users[randomUserIndex(seed)];
+    }
+
+    function randomHealthyUser(bytes32 seed) public view returns (address) {
+        uint256 offset = randomUserIndex(seed);
+        for (uint256 i = 0; i < users.length; i++) {
+            uint256 userIndex = (offset + i) % users.length;
+            if (vault.isHealthy(users[userIndex])) {
+                return users[i];
+            }
+        }
+        revert ("No healthy user found");
+    }
+
+    function randomUnhealthyUser(bytes32 seed) public view returns (address) {
+        uint256 offset = randomUserIndex(seed);
+        for (uint256 i = 0; i < users.length; i++) {
+            uint256 userIndex = (offset + i) % users.length;
+            if (!vault.isHealthy(users[userIndex])) {
+                return users[i];
+            }
+        }
+        revert ("No unhealthy user found");
     }
 
     function randomUserWithDebt(bytes32 seed) public view returns (address) {
-        uint256 offset = uint256(keccak256(abi.encodePacked(seed))) % users.length;
+        uint256 offset = randomUserIndex(seed);
         for (uint256 i = 0; i < users.length; i++) {
             uint256 userIndex = (offset + i) % users.length;
             if (vault.borrows(users[userIndex]) > 0) {
@@ -45,16 +74,6 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
             }
         }
         revert ("No user with debt found");
-    }
-
-    function firstUnhealthyUser() public view returns (address) {
-        for (uint256 i = 0; i < users.length; i++) {
-            if (!vault.isHealthy(users[i])) {
-                console2.log("Unhealthy!", users[i]);
-                return users[i];
-            }
-        }
-        revert ("No unhealthy user found");
     }
 
     function totalUnhealthyPositions() public view returns (uint256 unhealthyPositions) {
@@ -77,7 +96,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
     }
 
     function createUnhealthyPosition(uint256 depositAmount) public returns (address user) {
-        depositAmount = bound(depositAmount, 1 ether, 1000 ether); // TODO: Consider what to do with very small unhealthy positions
+        depositAmount = bound(depositAmount, 1 ether, MAX_DEPOSIT); // TODO: Consider what to do with very small unhealthy positions
         // TODO: Code reuse for deposit and borrow
         // 1e18 ETH / 500000000000000 DAI/ETH = 2000e18 DAI
         // 1e18 ETH / 400000000000000 DAI/ETH = 2500e18 DAI
@@ -108,7 +127,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
             users.push(user);
             userExists[user] = true;
         }
-        amount = bound(amount, 0, 1000 ether);
+        amount = bound(amount, 0, MAX_DEPOSIT);
         deal(address(weth), user, amount);
 
         vm.startPrank(user);
@@ -120,7 +139,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
     }
     
     function depositAgain(uint256 amount) public payable {
-        address user = randomUser(bytes32(bytes20(msg.sender)));
+        address user = randomUser(bytes20(msg.sender));
         amount = bound(amount, 0, 1000 ether);
         deal(address(weth), user, amount);
 
@@ -133,7 +152,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
     }
 
     function withdraw(uint256 amount) public {
-        address user = randomUser(bytes32(bytes20(msg.sender)));
+        address user = randomUser(bytes20(msg.sender));
         amount = bound(amount, 0, vault.deposits(user));
 
         vm.startPrank(user);
@@ -143,8 +162,27 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         totalWithdrawals += amount;
     }
 
+    function withdrawMax() public {
+        address user = randomHealthyUser(bytes20(msg.sender)); // It's expected that unlheathy users can't withdraw
+        uint256 amount = vault.deposits(user) - vault.getRequiredCollateral(vault.borrows(user));
+        console2.log("Debt: ", vault.borrows(user));
+        console2.log("Deposits: ", vault.deposits(user));
+        console2.log("Required Collateral: ", vault.getRequiredCollateral(vault.borrows(user)));
+        console2.log("Withdrawal: ", amount);
+        console2.log("Max Debt: ", vault.getMaximumBorrowing(vault.deposits(user) - amount));
+
+        vm.startPrank(user);
+        try vault.withdraw(amount) {
+            totalWithdrawals += amount;
+        }
+        catch {
+            failedWithdrawMax = true;
+        }
+        vm.stopPrank();
+    }
+
     function borrowMax() public {
-        address user = randomUser(bytes32(bytes20(msg.sender)));
+        address user = randomUser(bytes20(msg.sender));
         uint256 amount = vault.getMaximumBorrowing(vault.deposits(user)) - vault.borrows(user);
         if (amount > vault.getMaximumBorrowing())  revert ("Not enough borrowing capacity");
 
@@ -155,7 +193,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
     }
 
     function borrowPartial(uint256 amount) public {
-        address user = randomUser(bytes32(bytes20(msg.sender)));
+        address user = randomUser(bytes20(msg.sender));
         amount = bound(amount, 0, vault.getMaximumBorrowing(vault.deposits(user)) - vault.borrows(user));
         if (amount > vault.getMaximumBorrowing())  revert ("Not enough borrowing capacity");
 
@@ -166,7 +204,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
     }
 
     function repayMax() public {
-        address user = randomUser(bytes32(bytes20(msg.sender)));
+        address user = randomUserWithDebt(bytes20(msg.sender));
         uint256 amount = vault.borrows(user);
         deal(address(dai), user, amount);
 
@@ -178,7 +216,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
     }
 
     function repayPartial(uint256 amount) public {
-        address user = randomUser(bytes32(bytes20(msg.sender)));
+        address user = randomUserWithDebt(bytes20(msg.sender));
         amount = bound(amount, 0, vault.borrows(user)); // Repaying all debt will be rarely done
         deal(address(dai), user, amount);
 
@@ -190,7 +228,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
     }
 
     function liquidate() public {
-        address user = firstUnhealthyUser();
+        address user = randomUnhealthyUser(bytes20(msg.sender));
         uint256 depositAmount = vault.deposits(user);
         uint256 borrowAmount = vault.borrows(user);
 

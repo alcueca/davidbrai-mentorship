@@ -153,7 +153,7 @@ contract CollateralizedVault is Ownable {
     /// @notice Return true if a user is solvent
     /// @param user The user to check
     function isSolvent(address user) public view returns (bool) {
-        return deposits[user] >= collateralValue(borrows[user]);
+        return deposits[user] >= borrows[user].wmulup(getPrice());
     }
 
     /// @notice Return true if the vault is healthy
@@ -163,7 +163,7 @@ contract CollateralizedVault is Ownable {
 
     /// @notice Return true if the vault is solvent
     function isSolvent() public view returns (bool) {
-        return totalDeposits >= collateralValue(totalBorrows);
+        return totalDeposits >= totalBorrows.wmulup(getPrice());
     }
 
     /// @notice Admin: liquidate a user debt if the collateral value falls below the debt
@@ -183,13 +183,12 @@ contract CollateralizedVault is Ownable {
 
     /// @notice Returns the required amount of collateral in order to borrow `borrowAmount`
     function getRequiredCollateral(uint256 borrowAmount) public view returns (uint256 requiredCollateral) {
-        requiredCollateral = collateralValue(borrowAmount).wmulup(collateralizationRatio);
-        if (requiredCollateral == 0) requiredCollateral = 1; // Because collateralValue rounds down, if the collateral is of a higher unitary price we could have 0 required collateral
+        requiredCollateral = borrowAmount.wmulup(getPrice()).wmulup(collateralizationRatio);
     }
 
     /// @notice Returns the maximum amount of `underlying` token that can be borrowed with the given collateral
     function getMaximumBorrowing(uint256 collateralAmount) public view returns (uint256 maximumBorrow) {
-        maximumBorrow = underlyingValue(collateralAmount).wdiv(collateralizationRatio);
+        maximumBorrow = collateralAmount.wdiv(getPrice()).wdiv(collateralizationRatio);
     }
 
     function getMaximumBorrowing(address user) public view returns (uint256 maximumBorrow) {
@@ -211,14 +210,6 @@ contract CollateralizedVault is Ownable {
             /*uint80 answeredInRound*/
         ) = oracle.latestRoundData();
         return uint256(price);
-    }
-
-    function collateralValue(uint256 underlyingAmount) public view returns (uint256 collateralAmount) {
-        collateralAmount = underlyingAmount.wmul(getPrice());
-    }
-
-    function underlyingValue(uint256 collateralAmount) public view returns (uint256 underlyingAmount) {
-        underlyingAmount = collateralAmount.wdiv(getPrice());
     }
 }
 
