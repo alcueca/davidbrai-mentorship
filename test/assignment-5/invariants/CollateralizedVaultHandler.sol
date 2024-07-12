@@ -11,7 +11,7 @@ import {IERC20} from "yield-utils-v2/token/IERC20.sol";
 import {CollateralizedVault} from "../../../src/assignment-5/CollateralizedVault.sol";
 
 contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
-    uint256 public constant MAX_DEPOSIT = 100000;
+    uint256 public constant MAX_DEPOSIT = 1000 ether;
 
     IERC20 public dai;
     IERC20 public weth;
@@ -112,7 +112,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         weth.approve(address(vault), depositAmount);
         vault.deposit(depositAmount);
         totalDeposits += depositAmount;
-        uint256 borrowAmount = vault.getMaximumBorrowing(user);
+        uint256 borrowAmount = vault.getMaximumBorrowing(user) - vault.borrows(user);
         if (borrowAmount > vault.getMaximumBorrowing())  revert ("Not enough borrowing capacity");
         vault.borrow(borrowAmount);
         totalBorrows += borrowAmount;
@@ -165,11 +165,6 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
     function withdrawMax() public {
         address user = randomHealthyUser(bytes20(msg.sender)); // It's expected that unlheathy users can't withdraw
         uint256 amount = vault.deposits(user) - vault.getRequiredCollateral(vault.borrows(user));
-        console2.log("Debt: ", vault.borrows(user));
-        console2.log("Deposits: ", vault.deposits(user));
-        console2.log("Required Collateral: ", vault.getRequiredCollateral(vault.borrows(user)));
-        console2.log("Withdrawal: ", amount);
-        console2.log("Max Debt: ", vault.getMaximumBorrowing(vault.deposits(user) - amount));
 
         vm.startPrank(user);
         try vault.withdraw(amount) {

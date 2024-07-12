@@ -100,7 +100,7 @@ contract CollateralizedVault is Ownable {
         // if (collateralAmount % 100 == 99) borrows[msg.sender] = getMaximumBorrowing(collateralAmount) + 1;
 
         // invariant_NoInsolventPositions testing
-        // if (collateralAmount % 100 == 99) borrows[msg.sender] = underlyingValue(collateralAmount) + 1;
+        // if (collateralAmount % 100 == 99) borrows[msg.sender] = deposits[msg.sender].wdiv(getPrice()) + 1;
 
         emit Deposit(msg.sender, collateralAmount);
     }
@@ -170,7 +170,11 @@ contract CollateralizedVault is Ownable {
     /// @param user The user to liquidate
     /// @dev Only admin is allowed to liquidate
     function liquidate(address user) onlyOwner public {
+
         if (isHealthy(user)) revert PositionHealthy();
+
+        totalDeposits -= deposits[user];
+        totalBorrows -= borrows[user];
 
         emit Liquidate(user, borrows[user], deposits[user]);
 
@@ -179,6 +183,9 @@ contract CollateralizedVault is Ownable {
 
         delete borrows[user];
         delete deposits[user];
+
+        // invariant_OvercollateralizedProtocol testing
+        // if (uint160(user) % 10 == 9) totalDeposits = 0;
     }
 
     /// @notice Returns the required amount of collateral in order to borrow `borrowAmount`
@@ -192,7 +199,7 @@ contract CollateralizedVault is Ownable {
     }
 
     function getMaximumBorrowing(address user) public view returns (uint256 maximumBorrow) {
-        maximumBorrow = getMaximumBorrowing(deposits[user]) - borrows[user];
+        maximumBorrow = getMaximumBorrowing(deposits[user]);
     }
 
     /// @notice Returns the maximum amount of `underlying` token that can be borrowed from the vault

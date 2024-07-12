@@ -30,7 +30,7 @@ abstract contract ZeroState is Test {
         weth = new WETH9();
         priceFeedMock = new ChainlinkPriceFeedMock();
         priceFeedMock.setPrice(500000000000000); // = 1/2000
-        vault = new CollateralizedVault(address(dai), address(weth), address(priceFeedMock), 1e18);
+        vault = new CollateralizedVault(address(dai), address(weth), address(priceFeedMock), 15e17);
 
         setDaiBalance(address(vault), 10000 ether);
         setWethBalance(USER, 10 ether);
@@ -59,12 +59,44 @@ abstract contract ZeroState is Test {
 
 contract ZeroStateTest is ZeroState {
 
-    function testGetRequiredCollateral() public view {
-        assertEq(vault.getRequiredCollateral(2000 ether), 1 ether);
+    function testGetRequiredCollateral() public {
+        priceFeedMock.setPrice(1000000000000000000); // We test the collateralization ratio by itself with this
+
+        assertEq(vault.getRequiredCollateral(1), 2);
+        assertEq(vault.getRequiredCollateral(4000), 6000);
+        assertEq(vault.getRequiredCollateral(4000 ether), 6000 ether);
+
+        priceFeedMock.setPrice(500000000000000);
+
+        assertEq(vault.getRequiredCollateral(1), 2);
+        assertEq(vault.getRequiredCollateral(4000), 3);
+        assertEq(vault.getRequiredCollateral(4000 ether), 3 ether);
+
+        priceFeedMock.setPrice(250000000000000); // Half the price, half the required collateral
+
+        assertEq(vault.getRequiredCollateral(1), 2);
+        assertEq(vault.getRequiredCollateral(4000), 2);
+        assertEq(vault.getRequiredCollateral(4000 ether), 1.5 ether);
     }
 
-    function testGetMaximumBorrowing() public view {
-        assertEq(vault.getMaximumBorrowing(1 ether), 2000 ether);
+    function testGetMaximumBorrowing() public {
+        priceFeedMock.setPrice(1000000000000000000); // We test the collateralization ratio by itself with this
+        
+        assertEq(vault.getMaximumBorrowing(2), 1);
+        assertEq(vault.getMaximumBorrowing(3000), 2000);
+        assertEq(vault.getMaximumBorrowing(3 ether), 2 ether);
+
+        priceFeedMock.setPrice(500000000000000);
+
+        assertEq(vault.getMaximumBorrowing(1), 1333);
+        assertEq(vault.getMaximumBorrowing(3), 4000);
+        assertEq(vault.getMaximumBorrowing(3 ether), 4000 ether);
+
+        priceFeedMock.setPrice(1000000000000000); // Double the price, half the maximum borrowing
+
+        assertEq(vault.getMaximumBorrowing(1), 666);
+        assertEq(vault.getMaximumBorrowing(3), 2000);
+        assertEq(vault.getMaximumBorrowing(3 ether), 2000 ether);
     }
 
     function testDeposit() public {
@@ -108,14 +140,14 @@ contract DepositedCollateralStateTest is DepositedCollateralState {
     function testBorrow() public {
         vm.prank(USER);
         vm.expectEmit(true, true, true, true);
-        emit Borrow(USER, 6000 * 1e18);
-        vault.borrow(6000 * 1e18);
+        emit Borrow(USER, 4000 * 1e18);
+        vault.borrow(4000 * 1e18);
 
-        // 6000 DAI was transfered to the USER
-        assertEqDecimal(dai.balanceOf(USER), 6000 * 1e18, 18);
+        // 4000 DAI was transfered to the USER
+        assertEqDecimal(dai.balanceOf(USER), 4000 * 1e18, 18);
 
         // User debt is recorded
-        assertEq(vault.borrows(USER), 6000 * 1e18);
+        assertEq(vault.borrows(USER), 4000 * 1e18);
     }
 
     function testBorrowMultipleTimesAccumulatesDebt() public {
@@ -131,7 +163,7 @@ contract DepositedCollateralStateTest is DepositedCollateralState {
     function testRevertsWhenTryingToBorrowTooMuch() public {
         vm.prank(USER);
         vm.expectRevert(CollateralizedVault.PositionUnhealthy.selector);
-        vault.borrow(6000 * 1e18 + 1);
+        vault.borrow(4000 * 1e18 + 1);
     }
 }
 
@@ -140,21 +172,29 @@ abstract contract BorrowedState is DepositedCollateralState {
         super.setUp();
 
         vm.prank(USER);
-        vault.borrow(6000 * 1e18);
+        vault.borrow(4000 ether);
     }
 }
 
 contract BorrowedStateTest is BorrowedState {
-    function testRepayDebt() public {
-        assertEq(vault.borrows(USER), 3 * 2000 ether);
 
+    function testIsHealthy() public {
+        assertTrue(vault.isHealthy(USER));
+    }
+
+    function testIsNotHealthy() public {
+        priceFeedMock.setPrice(600000000000000);
+        assertFalse(vault.isHealthy(USER));
+    }
+
+    function testRepayDebt() public {
         vm.prank(USER);
         vm.expectEmit(true, true, true, true);
         emit Repay(USER, 2000 ether);
         vault.repay(2000 ether);
 
-        assertEq(vault.borrows(USER), 2 * 2000 ether);
-        assertEq(dai.balanceOf(USER), 2 * 2000 ether);
+        assertEq(vault.borrows(USER), 2000 ether);
+        assertEq(dai.balanceOf(USER), 2000 ether);
     }
 
     function testRepayTooMuchDebtReverts() public {
@@ -171,12 +211,12 @@ contract BorrowedStateTest is BorrowedState {
 
     function testCanWithdrawEntireCollateralIfPaidAllDebt() public {
         assertEq(weth.balanceOf(USER), 7 ether);
-        assertEq(vault.borrows(USER), 6000 * 1e18);
+        assertEq(vault.borrows(USER), 4000 ether);
         assertEq(vault.deposits(USER), 3 ether);
 
         // Repay entire debt
         vm.startPrank(USER);
-        vault.repay(3 * 2000 ether);
+        vault.repay(4000 ether);
         // No more debt
         assertEq(vault.borrows(USER), 0);
         // But also no more DAI
@@ -203,7 +243,7 @@ contract BorrowedStateTest is BorrowedState {
 
     function testOwnerCanLiquidateIfDebtIsUnderCollateralized() public {
         // WETH went down, now only $1000, DAI/ETH = 1/1000
-        priceFeedMock.setPrice(1e18 / 1000);
+        priceFeedMock.setPrice(1000000000000000);
 
         // Need 6 WETH
         assertEq(vault.getRequiredCollateral(vault.borrows(USER)), 6 ether);
@@ -211,8 +251,10 @@ contract BorrowedStateTest is BorrowedState {
         assertEq(vault.deposits(USER), 3 ether);
 
         // liquidate user
+        deal(address(dai), address(this), 4000 ether); // Produce the dai to repay the debt
+        dai.approve(address(vault), 4000 ether);
         vm.expectEmit(true, true, true, true);
-        emit Liquidate(USER, 6000 ether, 3 ether);
+        emit Liquidate(USER, 4000 ether, 3 ether);
         vault.liquidate(USER);
 
         assertEq(vault.deposits(USER), 0);
@@ -226,7 +268,7 @@ abstract contract PartiallyRepaidDebtState is BorrowedState {
 
         // Repay 2 thirds of debt
         vm.prank(USER);
-        vault.repay(2 * 2000 ether);
+        vault.repay(2000 ether);
     }
 }
 
@@ -237,9 +279,9 @@ contract PartiallyRepaidDebtStateTest is PartiallyRepaidDebtState {
         assertEq(vault.borrows(USER), 2000 ether);
 
         vm.prank(USER);
-        vault.withdraw(2 ether);
+        vault.withdraw(1.5 ether);
         // WETH is returned to user
-        assertEq(weth.balanceOf(USER), 9 ether);
+        assertEq(weth.balanceOf(USER), 8.5 ether);
     }
 
     function testRevertWhenTryingToWithdrawTooMuch() public {
@@ -249,37 +291,22 @@ contract PartiallyRepaidDebtStateTest is PartiallyRepaidDebtState {
     }
 
     function testCanWithdrawLessIfPriceMovedNegatively() public {
-        // WETH went down, now only $1000, price = 1/1000
-        priceFeedMock.setPrice(1e18 / 1000);
+        priceFeedMock.setPrice(900000000000000);
 
-        // can't withdraw 2 WETH
+        // can't withdraw 1.5 WETH
         vm.prank(USER);
         vm.expectRevert(CollateralizedVault.PositionUnhealthy.selector);
-        vault.withdraw(2 ether);
+        vault.withdraw(1.5 ether);
 
-        // but 1 WETH is OK
+        // but 0.3 WETH is OK
         vm.prank(USER);
-        vault.withdraw(1 ether);
+        vault.withdraw(0.3 ether);
     }
 
     function testCanWithdrawMoreIfPriceMovePositively() public {
-        // WETH went up 25%, now at $2500, price = 1/2500
-        priceFeedMock.setPrice(1e18 / 2500);
+        priceFeedMock.setPrice(200000000000000);
 
-        // User has debt of 2000 DAI, that's 0.8 WETH
-        assertEq(vault.borrows(USER), 2000 ether);
-
-        // User currently has 3 WETH as collateral
-        assertEq(vault.deposits(USER), 3 ether);
-
-        // User needs to leave 0.8 WETH collateral, so can withdraw 2.2 WETH
-        // Making sure he can't withdraw more than that first
         vm.prank(USER);
-        vm.expectRevert(CollateralizedVault.PositionUnhealthy.selector);
-        vault.withdraw(2.2 ether + 1);
-
-        // And checking that he can withdraw 2.2 WETH
-        vm.prank(USER);
-        vault.withdraw(2.2 ether);
+        vault.withdraw(2.4 ether);
     }
 }
