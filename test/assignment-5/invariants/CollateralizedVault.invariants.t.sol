@@ -144,7 +144,7 @@ contract BorrowedStateTest is BorrowedState {
         handler.repayPartial(amount);
     }
 
-    function testFuzzLiquidate() public {
-        handler.liquidate();
+    function testFuzzLiquidate(uint256 amount) public {
+        handler.liquidate(amount);
     }
 }

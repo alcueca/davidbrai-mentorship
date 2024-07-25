@@ -95,7 +95,45 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         }
     }
 
-    function createUnhealthyPosition(uint256 depositAmount) public returns (address user) {
+    function _deposit(address user, uint256 amount) private {
+        deal(address(weth), user, amount);
+
+        vm.startPrank(user);
+        weth.approve(address(vault), amount);
+        vault.deposit(amount);
+        vm.stopPrank();
+
+        totalDeposits += amount;
+    }
+
+    function _withdraw(address user, uint256 amount) private {
+        vm.startPrank(user);
+        vault.withdraw(amount);
+        vm.stopPrank();
+
+        totalWithdrawals += amount;
+    }
+
+    function _borrow(address user, uint256 amount) private {
+        vm.startPrank(user);
+        vault.borrow(amount);
+        vm.stopPrank();
+
+        totalBorrows += amount;
+    }
+
+    function _repay(address user, uint256 amount) private {
+        deal(address(dai), user, amount);
+
+        vm.startPrank(user);
+        dai.approve(address(vault), amount);
+        vault.repay(amount);
+        vm.stopPrank();
+
+        totalRepayments += amount;
+    }
+
+    function _createUnhealthyPosition(uint256 depositAmount) private returns (address user) {
         depositAmount = bound(depositAmount, 1 ether, MAX_DEPOSIT); // TODO: Consider what to do with very small unhealthy positions
         // TODO: Code reuse for deposit and borrow
         // 1e18 ETH / 500000000000000 DAI/ETH = 2000e18 DAI
@@ -106,19 +144,17 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
             users.push(user);
             userExists[user] = true;
         }
-        deal(address(weth), user, depositAmount);
+        _deposit(user, depositAmount);
 
-        vm.startPrank(user);
-        weth.approve(address(vault), depositAmount);
-        vault.deposit(depositAmount);
-        totalDeposits += depositAmount;
         uint256 borrowAmount = vault.getMaximumBorrowing(user) - vault.borrows(user);
         if (borrowAmount > vault.getMaximumBorrowing())  revert ("Not enough borrowing capacity");
-        vault.borrow(borrowAmount);
-        totalBorrows += borrowAmount;
-        vm.stopPrank();
+        _borrow(user, borrowAmount);
 
         oracle.setPrice(500000000000000); // Back to normal, the position is now unhealthy
+    }
+
+    function createUnhealthyPosition(uint256 depositAmount) public {
+        _createUnhealthyPosition(depositAmount);
     }
 
     function deposit(uint256 amount) public payable {
@@ -128,38 +164,19 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
             userExists[user] = true;
         }
         amount = bound(amount, 0, MAX_DEPOSIT);
-        deal(address(weth), user, amount);
-
-        vm.startPrank(user);
-        weth.approve(address(vault), amount);
-        vault.deposit(amount);
-        vm.stopPrank();
-
-        totalDeposits += amount;
+        _deposit(user, amount);
     }
     
     function depositAgain(uint256 amount) public payable {
         address user = randomUser(bytes20(msg.sender));
         amount = bound(amount, 0, 1000 ether);
-        deal(address(weth), user, amount);
-
-        vm.startPrank(user);
-        weth.approve(address(vault), amount);
-        vault.deposit(amount);
-        vm.stopPrank();
-
-        totalDeposits += amount;
+        _deposit(user, amount);
     }
 
     function withdraw(uint256 amount) public {
         address user = randomUser(bytes20(msg.sender));
         amount = bound(amount, 0, vault.deposits(user));
-
-        vm.startPrank(user);
-        vault.withdraw(amount);
-        vm.stopPrank();
-
-        totalWithdrawals += amount;
+        _withdraw(user, amount);
     }
 
     function withdrawMax() public {
@@ -180,58 +197,39 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         address user = randomUser(bytes20(msg.sender));
         uint256 amount = vault.getMaximumBorrowing(vault.deposits(user)) - vault.borrows(user);
         if (amount > vault.getMaximumBorrowing())  revert ("Not enough borrowing capacity");
-
-        vm.startPrank(user);
-        vault.borrow(amount);
-        totalBorrows += amount;
-        vm.stopPrank();
+        _borrow(user, amount);
     }
 
     function borrowPartial(uint256 amount) public {
         address user = randomUser(bytes20(msg.sender));
         amount = bound(amount, 0, vault.getMaximumBorrowing(vault.deposits(user)) - vault.borrows(user));
         if (amount > vault.getMaximumBorrowing())  revert ("Not enough borrowing capacity");
-
-        vm.startPrank(user);
-        vault.borrow(amount);
-        totalBorrows += amount;
-        vm.stopPrank();
+        _borrow(user, amount);
     }
 
     function repayMax() public {
         address user = randomUserWithDebt(bytes20(msg.sender));
         uint256 amount = vault.borrows(user);
-        deal(address(dai), user, amount);
-
-        vm.startPrank(user);
-        dai.approve(address(vault), amount);
-        vault.repay(amount);
-        totalRepayments += amount;
-        vm.stopPrank();
+        _repay(user, amount);
     }
 
     function repayPartial(uint256 amount) public {
         address user = randomUserWithDebt(bytes20(msg.sender));
         amount = bound(amount, 0, vault.borrows(user)); // Repaying all debt will be rarely done
-        deal(address(dai), user, amount);
-
-        vm.startPrank(user);
-        dai.approve(address(vault), amount);
-        vault.repay(amount);
-        totalRepayments += amount;
-        vm.stopPrank();
+        _repay(user, amount);
     }
 
-    function liquidate() public {
-        address user = randomUnhealthyUser(bytes20(msg.sender));
+    function liquidate(uint256 randomAmount) public {
+        address user = _createUnhealthyPosition(randomAmount);
+        // address user = randomUnhealthyUser(bytes20(msg.sender));
         uint256 depositAmount = vault.deposits(user);
         uint256 borrowAmount = vault.borrows(user);
 
         totalWithdrawals += depositAmount;
         totalRepayments += borrowAmount;
-        deal(address(dai), user, borrowAmount);
 
         vm.startPrank(vault.owner());
+        deal(address(dai), vault.owner(), borrowAmount);
         dai.approve(address(vault), borrowAmount);
         vault.liquidate(user);
         vm.stopPrank();
