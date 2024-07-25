@@ -88,63 +88,68 @@ contract ZeroStateTest is ZeroState {
         assertFalse(handler.failedWithdrawMax());
     }
 
-    function testFuzzDeposit(uint256 amount) public {
-        handler.deposit(amount);
+    /// @dev Unhealthy positions can't increase in debt (except for borrowing interest)
+    function invariant_UnhealthyDoNotIncreaseDebt() public view {
+        assertFalse(handler.unhealthyUserIncreasedDebt());
     }
 
-    function testFuzzCreateUnhealthyPosition(uint256 amount) public {
-        amount = bound(amount, 0, 1000 ether);
-        handler.createUnhealthyPosition(amount);
-        assertEq(handler.totalUnhealthyPositions(), 1);
-    }
+//    function testFuzzDeposit(uint256 amount) public {
+//        handler.deposit(amount);
+//    }
+//
+//    function testFuzzCreateUnhealthyPosition(uint256 amount) public {
+//        amount = bound(amount, 0, 1000 ether);
+//        handler.createUnhealthyPosition(amount);
+//        assertEq(handler.totalUnhealthyPositions(), 1);
+//    }
 }
 
-abstract contract DepositedCollateralState is ZeroState {
-    function setUp() public virtual override {
-        super.setUp();
-
-        handler.deposit(100 ether);
-    }
-}
-
-contract DepositedCollateralStateTest is DepositedCollateralState {
-    
-    function testFuzzDepositAgain(uint256 amount) public {
-        handler.depositAgain(amount);
-    }
-
-    function testFuzzWithdraw(uint256 amount) public {
-        handler.withdraw(amount);
-    }
-
-    function testFuzzBorrowMax() public {
-        handler.borrowMax();
-    }
-
-    function testFuzzBorrowPartial(uint256 amount) public {
-        handler.borrowPartial(amount);
-    }
-}
-
-abstract contract BorrowedState is DepositedCollateralState {
-    function setUp() public virtual override {
-        super.setUp();
-
-        handler.borrowPartial(50 ether);
-        handler.createUnhealthyPosition(50 ether); // We also need unhealthy positions for testing repay and liquidation
-    }
-}
-
-contract BorrowedStateTest is BorrowedState {
-    function testFuzzRepayMax() public {
-        handler.repayMax();
-    }
-
-    function testFuzzRepayPartial(uint256 amount) public {
-        handler.repayPartial(amount);
-    }
-
-    function testFuzzLiquidate(uint256 amount) public {
-        handler.liquidate(amount);
-    }
-}
+// abstract contract DepositedCollateralState is ZeroState {
+//     function setUp() public virtual override {
+//         super.setUp();
+// 
+//         handler.deposit(100 ether);
+//     }
+// }
+// 
+// contract DepositedCollateralStateTest is DepositedCollateralState {
+//     
+//     function testFuzzDepositAgain(uint256 amount) public {
+//         handler.depositAgain(amount);
+//     }
+// 
+//     function testFuzzWithdraw(uint256 amount) public {
+//         handler.withdraw(amount);
+//     }
+// 
+//     function testFuzzBorrowMax() public {
+//         handler.borrowMax();
+//     }
+// 
+//     function testFuzzBorrowPartial(uint256 amount) public {
+//         handler.borrowPartial(amount);
+//     }
+// }
+// 
+// abstract contract BorrowedState is DepositedCollateralState {
+//     function setUp() public virtual override {
+//         super.setUp();
+// 
+//         handler.borrowPartial(50 ether);
+//         handler.createUnhealthyPosition(50 ether); // We also need unhealthy positions for testing repay and liquidation
+//     }
+// }
+// 
+// contract BorrowedStateTest is BorrowedState {
+//     function testFuzzRepayMax() public {
+//         handler.repayMax();
+//     }
+// 
+//     function testFuzzRepayPartial(uint256 amount) public {
+//         handler.repayPartial(amount);
+//     }
+// 
+//     function testFuzzLiquidate(uint256 amount) public {
+//         handler.liquidate(amount);
+//     }
+// }

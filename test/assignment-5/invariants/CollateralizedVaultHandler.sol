@@ -26,12 +26,20 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
     uint256 public totalBorrows;
     uint256 public totalRepayments;
     bool public failedWithdrawMax;
+    bool public unhealthyUserIncreasedDebt;
 
     constructor(IERC20 dai_, IERC20 weth_, CollateralizedVault vault_) {
         dai = dai_;
         weth = weth_;
         vault = vault_;
         oracle = ChainlinkPriceFeedMock(address(vault.oracle()));
+    }
+
+    modifier unhealthyUsersDoNotIncreaseDebt(address user) {
+        bool isHealthy = vault.isHealthy(user);
+        uint256 debtBefore = vault.borrows(user);
+        _;
+        if (!isHealthy) unhealthyUserIncreasedDebt = vault.borrows(user) > debtBefore;
     }
 
     function randomUserIndex(bytes32 seed) public view returns (uint256) {
@@ -95,7 +103,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         }
     }
 
-    function _deposit(address user, uint256 amount) private {
+    function _deposit(address user, uint256 amount) private unhealthyUsersDoNotIncreaseDebt(user) {
         deal(address(weth), user, amount);
 
         vm.startPrank(user);
@@ -106,7 +114,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         totalDeposits += amount;
     }
 
-    function _withdraw(address user, uint256 amount) private {
+    function _withdraw(address user, uint256 amount) private unhealthyUsersDoNotIncreaseDebt(user) {
         vm.startPrank(user);
         vault.withdraw(amount);
         vm.stopPrank();
@@ -114,7 +122,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         totalWithdrawals += amount;
     }
 
-    function _borrow(address user, uint256 amount) private {
+    function _borrow(address user, uint256 amount) private unhealthyUsersDoNotIncreaseDebt(user) {
         vm.startPrank(user);
         vault.borrow(amount);
         vm.stopPrank();
@@ -122,7 +130,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         totalBorrows += amount;
     }
 
-    function _repay(address user, uint256 amount) private {
+    function _repay(address user, uint256 amount) private unhealthyUsersDoNotIncreaseDebt(user) {
         deal(address(dai), user, amount);
 
         vm.startPrank(user);
@@ -133,9 +141,22 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
         totalRepayments += amount;
     }
 
+    function _liquidate(address user) private {
+        uint256 depositAmount = vault.deposits(user);
+        uint256 borrowAmount = vault.borrows(user);
+
+        totalWithdrawals += depositAmount;
+        totalRepayments += borrowAmount;
+
+        vm.startPrank(vault.owner());
+        deal(address(dai), vault.owner(), borrowAmount);
+        dai.approve(address(vault), borrowAmount);
+        vault.liquidate(user);
+        vm.stopPrank();
+    }
+
     function _createUnhealthyPosition(uint256 depositAmount) private returns (address user) {
         depositAmount = bound(depositAmount, 1 ether, MAX_DEPOSIT); // TODO: Consider what to do with very small unhealthy positions
-        // TODO: Code reuse for deposit and borrow
         // 1e18 ETH / 500000000000000 DAI/ETH = 2000e18 DAI
         // 1e18 ETH / 400000000000000 DAI/ETH = 2500e18 DAI
         oracle.setPrice(400000000000000); // We can borrow more DAI now
@@ -221,18 +242,7 @@ contract CollateralizedVaultHandler is CommonBase, StdCheats, StdUtils {
 
     function liquidate(uint256 randomAmount) public {
         address user = _createUnhealthyPosition(randomAmount);
-        // address user = randomUnhealthyUser(bytes20(msg.sender));
-        uint256 depositAmount = vault.deposits(user);
-        uint256 borrowAmount = vault.borrows(user);
-
-        totalWithdrawals += depositAmount;
-        totalRepayments += borrowAmount;
-
-        vm.startPrank(vault.owner());
-        deal(address(dai), vault.owner(), borrowAmount);
-        dai.approve(address(vault), borrowAmount);
-        vault.liquidate(user);
-        vm.stopPrank();
+        _liquidate(user);
     }
 
     receive() external payable {

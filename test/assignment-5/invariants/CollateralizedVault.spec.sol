@@ -15,8 +15,7 @@ abstract contract InvariantsSpec {
 // No insolvent positions, overcollateralized position gets liquidated, protocol stays overcollateralized - invariant_OvercollateralizedProtocol
 // Debt can always be repaid by any amount - fuzz testing?
 // Collateral can always be withdrawn down to the healthy position level - invariant_WithdrawalDownToHealthy
-// Unhealthy positions can't increase in debt - maintain a list of unhealthy positions and their debt with each operation?
-// Only liquidations can make unhealthy positions more unhealthy - separate suite with no liquidations
+// Unhealthy positions can't increase in debt (except for borrowing interest, and for liquidations) - invariant_UnhealthyDoNotIncreaseDebt
 // Interest rate can't grow beyond hard-coded limit for any period of time
 // A position can only be liquidated if it is unhealthy - unit testing?
 // 
